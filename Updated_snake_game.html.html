@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Snake Game</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background: #f5f5f5;
+      font-family: Arial, sans-serif;
+    }
+    canvas {
+      display: block;
+      background: #000;
+    }
+    #restartBtn {
+      margin-top: 10px;
+      padding: 10px 20px;
+      font-size: 16px;
+      border: none;
+      border-radius: 5px;
+      background-color: #4CAF50;
+      color: white;
+      cursor: pointer;
+      display: none;
+    }
+    #restartBtn:hover {
+      background-color: #45a049;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 10px;
+    }
+    .btn {
+      width: 60px;
+      height: 60px;
+      margin: 5px;
+      font-size: 24px;
+      background: #ffcc00;
+      border: 2px solid #333;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+  <button id="restartBtn">Restart</button>
+
+  <!-- Mobile controls -->
+  <div class="controls">
+    <button class="btn" onclick="setDirection('UP')">⬆️</button>
+  </div>
+  <div class="controls">
+    <button class="btn" onclick="setDirection('LEFT')">⬅️</button>
+    <button class="btn" onclick="setDirection('DOWN')">⬇️</button>
+    <button class="btn" onclick="setDirection('RIGHT')">➡️</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const restartBtn = document.getElementById("restartBtn");
+
+    // Make canvas fullscreen
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const box = 40; // size of one tile
+    let snake, food, direction, score, gameInterval, speed, level;
+    let tongueOut = false;
+    let tick = 0;
+
+    document.addEventListener("keydown", e => {
+      if (e.key === "ArrowUp") setDirection("UP");
+      else if (e.key === "ArrowDown") setDirection("DOWN");
+      else if (e.key === "ArrowLeft") setDirection("LEFT");
+      else if (e.key === "ArrowRight") setDirection("RIGHT");
+    });
+
+    function setDirection(dir) {
+      if (dir === "UP" && direction !== "DOWN") direction = "UP";
+      else if (dir === "DOWN" && direction !== "UP") direction = "DOWN";
+      else if (dir === "LEFT" && direction !== "RIGHT") direction = "LEFT";
+      else if (dir === "RIGHT" && direction !== "LEFT") direction = "RIGHT";
+    }
+
+    function drawBackground() {
+      for (let y = 0; y < canvas.height; y += box) {
+        for (let x = 0; x < canvas.width; x += box) {
+          ctx.fillStyle = (x / box + y / box) % 2 === 0 ? "#FFD633" : "#fff";
+          ctx.fillRect(x, y, box, box);
+        }
+      }
+    }
+
+    function drawSnake() {
+      snake.forEach((segment, i) => {
+        let offset = Math.sin((tick + i) * 0.3) * 3; // wiggle effect
+
+        if (i === 0) {
+          // Head
+          ctx.fillStyle = "green";
+          ctx.beginPath();
+          ctx.arc(segment.x + box / 2, segment.y + box / 2 + offset, box / 1.5, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Eyes
+          ctx.fillStyle = "white";
+          ctx.beginPath();
+          ctx.arc(segment.x + box / 3, segment.y + box / 3, 6, 0, Math.PI * 2);
+          ctx.arc(segment.x + 2 * box / 3, segment.y + box / 3, 6, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = "black";
+          ctx.beginPath();
+          ctx.arc(segment.x + box / 3, segment.y + box / 3, 3, 0, Math.PI * 2);
+          ctx.arc(segment.x + 2 * box / 3, segment.y + box / 3, 3, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Tongue flick
+          if (tongueOut) {
+            ctx.strokeStyle = "red";
+            ctx.beginPath();
+            ctx.moveTo(segment.x + box / 2, segment.y + box);
+            ctx.lineTo(segment.x + box / 2, segment.y + box + 15);
+            ctx.stroke();
+          }
+        } else {
+          ctx.fillStyle = "green";
+          ctx.beginPath();
+          ctx.arc(segment.x + box / 2, segment.y + box / 2 + offset, box / 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+    }
+
+    function drawFood() {
+      // Worm-like food
+      ctx.fillStyle = "sienna";
+      ctx.beginPath();
+      ctx.ellipse(food.x + box / 2, food.y + box / 2, box / 2, box / 4, Math.PI / 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawScore() {
+      ctx.fillStyle = "black";
+      ctx.font = "24px Arial";
+      ctx.fillText("Score: " + score + "  Level: " + level, 20, 30);
+    }
+
+    function update() {
+      tick++;
+      if (tick % 20 === 0) tongueOut = !tongueOut;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBackground();
+      drawSnake();
+      drawFood();
+      drawScore();
+
+      let snakeX = snake[0].x;
+      let snakeY = snake[0].y;
+
+      if (direction === "UP") snakeY -= box;
+      if (direction === "DOWN") snakeY += box;
+      if (direction === "LEFT") snakeX -= box;
+      if (direction === "RIGHT") snakeX += box;
+
+      // Collision with walls = Game Over
+      if (
+        snakeX < 0 ||
+        snakeY < 0 ||
+        snakeX >= canvas.width ||
+        snakeY >= canvas.height
+      ) {
+        clearInterval(gameInterval);
+        restartBtn.style.display = "inline-block";
+        return;
+      }
+
+      // Eat food
+      if (snakeX === food.x && snakeY === food.y) {
+        score++;
+        food = {
+          x: Math.floor(Math.random() * (canvas.width / box)) * box,
+          y: Math.floor(Math.random() * (canvas.height / box)) * box
+        };
+        clearInterval(gameInterval);
+        speed = Math.max(50, speed - 5);
+        gameInterval = setInterval(update, speed);
+
+        // Level up
+        if (score % 20 === 0) {
+          level++;
+          fireworks();
+        }
+      } else {
+        snake.pop();
+      }
+
+      const newHead = { x: snakeX, y: snakeY };
+      if (collision(newHead, snake)) {
+        clearInterval(gameInterval);
+        restartBtn.style.display = "inline-block";
+        return;
+      }
+      snake.unshift(newHead);
+    }
+
+    function collision(head, array) {
+      return array.some(seg => head.x === seg.x && head.y === seg.y);
+    }
+
+    function fireworks() {
+      for (let i = 0; i < 50; i++) {
+        setTimeout(() => {
+          ctx.fillStyle = `hsl(${Math.random() * 360},100%,50%)`;
+          ctx.beginPath();
+          ctx.arc(Math.random() * canvas.width, Math.random() * canvas.height, 5, 0, Math.PI * 2);
+          ctx.fill();
+        }, i * 50);
+      }
+    }
+
+    function startGame() {
+      snake = [{ x: 9 * box, y: 10 * box }];
+      direction = "RIGHT";
+      score = 0;
+      level = 1;
+      food = {
+        x: Math.floor(Math.random() * (canvas.width / box)) * box,
+        y: Math.floor(Math.random() * (canvas.height / box)) * box
+      };
+      restartBtn.style.display = "none";
+      if (gameInterval) clearInterval(gameInterval);
+      speed = 200;
+      gameInterval = setInterval(update, speed);
+    }
+
+    restartBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
