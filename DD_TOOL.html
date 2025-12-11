@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>DD Clues — CSV Analysis Tool</title>
+<!-- CDN libraries -->
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<style>
+  :root{--bg:#f7fafc;--card:#ffffff;--muted:#6b7280;--accent:#0ea5a4;}
+  body{font-family:Inter,Segoe UI,Roboto,Arial; background:var(--bg); margin:0; padding:18px; color:#0f172a;}
+  header{display:flex;align-items:center;gap:12px}
+  h1{margin:0;font-size:20px}
+  .grid{display:grid;grid-template-columns:320px 1fr;gap:18px;margin-top:14px}
+  .card{background:var(--card);padding:12px;border-radius:10px;box-shadow:0 4px 14px rgba(12,18,30,0.06)}
+  input[type=file]{display:block}
+  label{font-size:13px;color:var(--muted)}
+  .section{margin-bottom:12px}
+  .preview{max-height:340px; overflow:auto;border-radius:8px;border:1px solid #eef2f7;padding:8px;}
+  table{border-collapse:collapse;width:100%;font-size:12px}
+  th,td{padding:6px 8px;border-bottom:1px solid #f1f5f9;text-align:left}
+  th{position:sticky;top:0;background:#fff}
+  .small{font-size:12px;color:var(--muted)}
+  .controls{display:flex;flex-direction:column;gap:8px}
+  .row{display:flex;gap:8px;align-items:center}
+  select,input,button{padding:6px;border-radius:6px;border:1px solid #e6eef2}
+  button{cursor:pointer;background:var(--accent);color:#fff;border:none}
+  .muted{color:var(--muted);font-size:13px}
+  .stats-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px}
+  .stat{background:#f8fafb;padding:8px;border-radius:6px;font-size:13px}
+  .charts{display:flex;gap:12px;flex-wrap:wrap}
+  canvas{background:#fff;border-radius:8px;padding:8px}
+  .footer{margin-top:12px;font-size:12px;color:var(--muted)}
+  .actions{display:flex;gap:8px}
+  .pill{display:inline-block;padding:6px 8px;background:#eef2f7;border-radius:999px;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>DD Clues — CSV Analysis Tool</h1>
+    <div class="small">Upload CSV → Explore → Visualize → Export</div>
+  </div>
+</header>
+
+<div class="grid">
+  <aside class="card">
+    <div class="section">
+      <label>Upload CSV file</label>
+      <input id="csvFile" type="file" accept=".csv,text/csv" />
+    </div>
+
+    <div class="section controls">
+      <div>
+        <label>Preview options</label>
+        <div class="row">
+          <select id="previewRows"><option value="25">25 rows</option><option value="50">50 rows</option><option value="100">100 rows</option><option value="all">All</option></select>
+          <button id="btnPreview">Show Preview</button>
+        </div>
+      </div>
+
+      <div>
+        <label>Anomaly detection (numeric columns)</label>
+        <div class="row">
+          <select id="anomalyColumn"></select>
+          <input id="zThresh" type="number" value="3" step="0.1" style="width:80px" />
+        </div>
+        <div class="row">
+          <button id="btnFindAnom">Find anomalies</button>
+          <button id="btnExportAnom">Export anomalies</button>
+        </div>
+      </div>
+
+      <div>
+        <label>Unique counts (categorical)</label>
+        <div class="row">
+          <select id="uniqueColumn"></select>
+          <button id="btnUnique">Show uniques</button>
+        </div>
+      </div>
+
+      <div>
+        <label>Filter rows</label>
+        <div class="row">
+          <select id="filterColumn"></select>
+        </div>
+        <div class="row">
+          <select id="filterOp">
+            <option value="==">==</option><option value="contains">contains</option>
+            <option value=">">&gt;</option><option value="<">&lt;</option>
+            <option value=">=">&gt;=</option><option value="<=">&lt;=</option>
+            <option value="!=">!=</option>
+          </select>
+          <input id="filterValue" placeholder="value"/>
+          <button id="btnFilter">Apply</button>
+        </div>
+      </div>
+
+      <div>
+        <label>Group by & aggregate</label>
+        <div class="row">
+          <select id="groupByCol"></select>
+          <select id="aggFun">
+            <option value="count">count</option><option value="sum">sum</option><option value="mean">mean</option>
+          </select>
+        </div>
+        <div class="row">
+          <select id="aggCol"></select>
+          <button id="btnGroup">Group</button>
+        </div>
+      </div>
+
+      <div>
+        <label>Date/time analysis</label>
+        <div class="row">
+          <select id="dateColumn"></select>
+        </div>
+        <div class="row">
+          <select id="dateAgg">
+            <option value="day">day</option><option value="week">week</option><option value="month">month</option>
+          </select>
+          <select id="dateValueCol"></select>
+          <button id="btnDateTrend">Show trend</button>
+        </div>
+      </div>
+
+    </div>
+  </aside>
+
+  <main>
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div class="pill" id="rowsInfo">No file loaded</div>
+        </div>
+        <div class="actions">
+          <button id="btnShowStats">Descriptive stats</button>
+          <button id="btnClearFilters" style="background:#e2e8f0;color:#0b1220">Clear filters</button>
+          <button id="btnDownloadClean" style="background:#111827">Download CSV</button>
+        </div>
+      </div>
+
+      <div style="margin-top:10px">
+        <div id="preview" class="preview small">Upload a CSV to begin.</div>
+      </div>
+    </div>
+
+    <div class="card" id="statsArea" style="display:none">
+      <h3 style="margin-top:0">Descriptive Statistics</h3>
+      <div id="statsContent" class="stats-grid"></div>
+    </div>
+
+    <div class="card" id="miscArea" style="display:none">
+      <h3 style="margin-top:0">Results</h3>
+      <div id="miscContent" class="small"></div>
+    </div>
+
+    <div class="card" id="chartArea" style="display:none">
+      <h3 style="margin-top:0">Visualizations</h3>
+      <div class="charts">
+        <div style="flex:1;min-width:320px"><canvas id="chartMain" height="240"></canvas></div>
+        <div style="flex:1;min-width:320px"><canvas id="chart2" height="240"></canvas></div>
+      </div>
+    </div>
+
+    <div class="footer">Tip: column detection is automatic. If a date column doesn't appear, try selecting the correct column type in the <b>Date/time analysis</b> selector.</div>
+  </main>
+</div>
+
+<script>
+/* --- Globals --- */
+let rawData = [];          // array of objects
+let headers = [];          // header list
+let originalCSV = "";      // raw CSV text
+let filteredData = null;   // after filtering
+let numericCols = [];
+let categoricalCols = [];
+let dateCols = [];
+let charts = [];
+
+/* --- Utilities --- */
+function tryParseNumber(s){
+  if(s === null || s === undefined || s === "") return null;
+  if(typeof s === "number") return isFinite(s)?s:null;
+  const n = Number(String(s).replace(/,/g,"").trim());
+  return isFinite(n)?n:null;
+}
+function isDateString(s){
+  if(!s) return false;
+  const d = Date.parse(s);
+  return !isNaN(d);
+}
+function downloadCSV(content, filename="export.csv"){
+  const blob = new Blob([content], {type: "text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(url); a.remove();},1000);
+}
+
+/* --- Parsing & UI population --- */
+document.getElementById('csvFile').addEventListener('change', ev=>{
+  const f = ev.target.files[0];
+  if(!f) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    originalCSV = e.target.result;
+    Papa.parse(originalCSV, {
+      header: true,
+      skipEmptyLines: true,
+      dynamicTyping: false,
+      complete: (res)=>{
+        rawData = res.data;
+        headers = res.meta.fields || (rawData[0] ? Object.keys(rawData[0]) : []);
+        filteredData = null;
+        analyzeColumns();
+        updatePreview();
+        document.getElementById('rowsInfo').innerText = `${rawData.length} rows · ${headers.length} columns`;
+        document.getElementById('statsArea').style.display = 'none';
+        document.getElementById('miscArea').style.display = 'none';
+        document.getElementById('chartArea').style.display = 'none';
+      },
+      error: (err)=>{alert("Parse error: "+err.message)}
+    });
+  };
+  reader.readAsText(f);
+});
+
+function analyzeColumns(){
+  numericCols = []; categoricalCols = []; dateCols = [];
+  headers.forEach(h=>{
+    let numCount = 0, dateCount = 0, total = Math.min(50, rawData.length);
+    for(let i=0;i<total;i++){
+      const v = rawData[i][h];
+      if(tryParseNumber(v) !== null) numCount++;
+      if(isDateString(v)) dateCount++;
+    }
+    if(numCount / Math.max(1,total) >= 0.6) numericCols.push(h);
+    else categoricalCols.push(h);
+    if(dateCount / Math.max(1,total) >= 0.5) dateCols.push(h);
+  });
+  populateSelectors();
+}
+
+function populateSelectors(){
+  function fill(selId, arr, allowEmpty=true){
+    const sel = document.getElementById(selId); sel.innerHTML = "";
+    if(allowEmpty) sel.insertAdjacentHTML('beforeend','<option value="">—</option>');
+    arr.forEach(a=>sel.insertAdjacentHTML('beforeend',`<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`));
+  }
+  fill('anomalyColumn', numericCols);
+  fill('uniqueColumn', categoricalCols.concat(numericCols));
+  fill('filterColumn', headers);
+  fill('groupByCol', headers);
+  fill('aggCol', numericCols);
+  fill('dateColumn', dateCols.concat(headers));
+  fill('dateValueCol', numericCols);
+  // preview rows option default
+}
+
+function escapeHtml(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+/* --- Preview --- */
+document.getElementById('btnPreview').addEventListener('click', updatePreview);
+
+function updatePreview(){
+  const rowsOpt = document.getElementById('previewRows').value;
+  const previewDiv = document.getElementById('preview');
+  let rows = rawData;
+  if(!rows) { previewDiv.innerHTML = "No data." ; return; }
+  if(rowsOpt !== 'all') rows = rawData.slice(0, Number(rowsOpt));
+  // build table
+  let html = `<table><thead><tr>${headers.map(h=>`<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>`;
+  rows.forEach(r=>{
+    html += "<tr>" + headers.map(h=>`<td>${escapeHtml(r[h])}</td>`).join('') + "</tr>";
+  });
+  html += "</tbody></table>";
+  previewDiv.innerHTML = html;
+}
+
+/* --- Descriptive stats --- */
+document.getElementById('btnShowStats').addEventListener('click', showStats);
+
+function showStats(){
+  if(!rawData.length){ alert("No data"); return; }
+  const content = document.getElementById('statsContent'); content.innerHTML = "";
+  // numeric stats
+  numericCols.forEach(col=>{
+    const values = rawData.map(r=>tryParseNumber(r[col])).filter(v=>v!==null);
+    if(values.length===0) return;
+    const n = values.length;
+    const sum = values.reduce((a,b)=>a+b,0);
+    const mean = sum/n;
+    const sq = values.reduce((a,b)=>a + (b-mean)*(b-mean),0);
+    const std = Math.sqrt(sq / n);
+    const sorted = values.slice().sort((a,b)=>a-b);
+    const median = (sorted[Math.floor((n-1)/2)] + sorted[Math.ceil((n-1)/2)])/2;
+    const min = sorted[0], max = sorted[sorted.length-1];
+    content.insertAdjacentHTML('beforeend',`
+      <div class="stat">
+        <strong>${escapeHtml(col)}</strong><br>
+        count: ${n}<br>
+        sum: ${sum.toFixed(4)}<br>
+        mean: ${mean.toFixed(4)}<br>
+        median: ${median.toFixed(4)}<br>
+        std: ${std.toFixed(4)}<br>
+        min: ${min}<br>max: ${max}
+      </div>`);
+  });
+
+  // categorical unique counts
+  categoricalCols.forEach(col=>{
+    const map = {};
+    rawData.forEach(r=>{ const v = r[col]===undefined||r[col]===""? "(empty)": String(r[col]); map[v] = (map[v]||0)+1; });
+    const top = Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,8).map(e=>`${escapeHtml(e[0])} (${e[1]})`).join(", ");
+    content.insertAdjacentHTML('beforeend',`
+      <div class="stat">
+        <strong>${escapeHtml(col)}</strong><br>
+        unique: ${Object.keys(map).length}<br>
+        top: ${top}
+      </div>`);
+  });
+
+  document.getElementById('statsArea').style.display = '';
+}
+
+/* --- Anomaly detection --- */
+document.getElementById('btnFindAnom').addEventListener('click', findAnomalies);
+let lastAnomalies = [];
+
+function findAnomalies(){
+  const col = document.getElementById('anomalyColumn').value;
+  if(!col){ alert("Select a numeric column"); return; }
+  const thresh = Number(document.getElementById('zThresh').value) || 3;
+  const values = rawData.map((r,i)=>({i, v: tryParseNumber(r[col]), row:r})).filter(x=>x.v!==null);
+  if(!values.length){ alert("No numeric values found in column"); return; }
+  const n = values.length;
+  const mean = values.reduce((a,b)=>a+b.v,0)/n;
+  const std = Math.sqrt(values.reduce((a,b)=>a+(b.v-mean)*(b.v-mean),0)/n);
+  lastAnomalies = values.filter(x=> Math.abs((x.v-mean)/(std||1)) > thresh).map(x=>x.row);
+  const misc = document.getElementById('miscContent');
+  if(lastAnomalies.length===0){
+    misc.innerHTML = `<div class="muted">No anomalies found in ${escapeHtml(col)} using z>${thresh}</div>`;
+  } else {
+    misc.innerHTML = `<div>Found <strong>${lastAnomalies.length}</strong> anomaly rows in <b>${escapeHtml(col)}</b> (z>${thresh}). <button id="viewAnom">View</button></div>`;
+    document.getElementById('miscArea').style.display='';
+    document.getElementById('viewAnom').addEventListener('click', ()=>{ showRowsInPreview(lastAnomalies); });
+  }
+}
+
+document.getElementById('btnExportAnom').addEventListener('click', ()=>{
+  if(!lastAnomalies || lastAnomalies.length===0){ alert("No anomalies to export. Run detection first."); return; }
+  const csv = Papa.unparse(lastAnomalies);
+  downloadCSV(csv, "anomalies.csv");
+});
+
+/* --- Unique counts --- */
+document.getElementById('btnUnique').addEventListener('click', ()=>{
+  const col = document.getElementById('uniqueColumn').value;
+  if(!col){ alert("Choose a column"); return; }
+  const map = {};
+  rawData.forEach(r=>{ const v = (r[col]===undefined||r[col]==="")? "(empty)": String(r[col]); map[v] = (map[v]||0)+1; });
+  const rows = Object.entries(map).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('miscContent').innerHTML = `<div><strong>${escapeHtml(col)}</strong> — unique: ${rows.length}</div>
+    <div style="max-height:220px;overflow:auto">${rows.map(e=>`<div>${escapeHtml(e[0])}: ${e[1]}</div>`).join('')}</div>`;
+  document.getElementById('miscArea').style.display='';
+});
+
+/* --- Filtering --- */
+document.getElementById('btnFilter').addEventListener('click', ()=>{
+  const col = document.getElementById('filterColumn').value;
+  if(!col){ alert("Choose a column"); return; }
+  const op = document.getElementById('filterOp').value;
+  const val = document.getElementById('filterValue').value;
+  if(val===""){ alert("Enter a value"); return; }
+  const out = rawData.filter(r=>{
+    const cell = r[col];
+    if(op === 'contains') return String(cell||"").toLowerCase().includes(val.toLowerCase());
+    if(op === '==') return String(cell) === val;
+    if(op === '!=') return String(cell) !== val;
+    const numCell = tryParseNumber(cell), numVal = tryParseNumber(val);
+    if(numCell === null || numVal === null) return false;
+    if(op === '>') return numCell > numVal;
+    if(op === '<') return numCell < numVal;
+    if(op === '>=') return numCell >= numVal;
+    if(op === '<=') return numCell <= numVal;
+    return false;
+  });
+  filteredData = out;
+  showRowsInPreview(out);
+  document.getElementById('rowsInfo').innerText = `${out.length} rows (filtered)`;
+});
+
+document.getElementById('btnClearFilters').addEventListener('click', ()=>{
+  filteredData = null; updatePreview(); document.getElementById('rowsInfo').innerText = `${rawData.length} rows · ${headers.length} columns`;
+});
+
+/* --- Group by & aggregate --- */
+document.getElementById('btnGroup').addEventListener('click', ()=>{
+  const by = document.getElementById('groupByCol').value;
+  const agg = document.getElementById('aggFun').value;
+  const col = document.getElementById('aggCol').value;
+  if(!by){ alert("Select group-by column"); return; }
+  const data = (filteredData || rawData);
+  const groups = {};
+  data.forEach(r=>{
+    const key = String(r[by]===undefined||r[by]===""? "(empty)": r[by]);
+    groups[key] = groups[key] || {count:0, sum:0, values:[]};
+    groups[key].count++;
+    const val = tryParseNumber(r[col]);
+    if(val!==null){ groups[key].sum += val; groups[key].values.push(val); }
+  });
+  const out = Object.entries(groups).map(([k,v])=>{
+    return {group:k, count:v.count, sum:v.sum, mean: v.values.length? (v.sum/v.values.length) : null};
+  }).sort((a,b)=>b.count-a.count);
+  document.getElementById('miscContent').innerHTML = `<div style="max-height:300px;overflow:auto">${out.map(o=>`<div><strong>${escapeHtml(o.group)}</strong> — count:${o.count} sum:${o.sum.toFixed(3)} mean:${o.mean===null? "n/a": o.mean.toFixed(3)}</div>`).join('')}</div>`;
+  document.getElementById('miscArea').style.display='';
+  // also draw bar of top 10
+  drawBarChart(out.slice(0,10).map(x=>x.group), out.slice(0,10).map(x=>x[agg==='count'?'count':(agg==='sum'?'sum':'mean')]), `Group by ${by} (${agg} of ${col})`);
+});
+
+/* --- Date/time trends --- */
+document.getElementById('btnDateTrend').addEventListener('click', ()=>{
+  const dateCol = document.getElementById('dateColumn').value;
+  const aggUnit = document.getElementById('dateAgg').value;
+  const valueCol = document.getElementById('dateValueCol').value;
+  if(!dateCol || !valueCol){ alert("Select date column and value column"); return; }
+  const data = (filteredData || rawData).map(r=>{
+    const d = new Date(r[dateCol]);
+    return {d, v: tryParseNumber(r[valueCol])};
+  }).filter(x=>x.d instanceof Date && !isNaN(x.d) && x.v !== null);
+  if(data.length===0){ alert("No valid date/value rows"); return; }
+  // bucket by day/week/month
+  const buckets = {};
+  data.forEach(x=>{
+    let key;
+    if(aggUnit==="day"){
+      key = x.d.toISOString().slice(0,10);
+    } else if(aggUnit==="month"){
+      key = `${x.d.getFullYear()}-${String(x.d.getMonth()+1).padStart(2,'0')}`;
+    } else { // week: use ISO week start (Monday)
+      const tmp = new Date(Date.UTC(x.d.getFullYear(), x.d.getMonth(), x.d.getDate()));
+      const day = tmp.getUTCDay() || 7;
+      tmp.setUTCDate(tmp.getUTCDate() + 4 - day);
+      const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(),0,1));
+      const weekNo = Math.ceil((((tmp - yearStart) / 86400000) + 1)/7);
+      key = `${tmp.getUTCFullYear()}-W${String(weekNo).padStart(2,'0')}`;
+    }
+    buckets[key] = buckets[key] || {sum:0, count:0};
+    buckets[key].sum += x.v; buckets[key].count++;
+  });
+  const rows = Object.entries(buckets).map(([k,v])=>({k, sum:v.sum, avg: v.sum/v.count})).sort((a,b)=>a.k.localeCompare(b.k));
+  drawLineChart(rows.map(r=>r.k), rows.map(r=>r.avg), `Trend (${valueCol}) by ${aggUnit}`);
+});
+
+/* --- Charts helpers --- */
+function destroyCharts(){
+  charts.forEach(c=>c.destroy()); charts = [];
+  document.getElementById('chartArea').style.display='none';
+}
+function drawBarChart(labels, dataVals, title="Bar"){
+  destroyCharts();
+  document.getElementById('chartArea').style.display='';
+  const ctx = document.getElementById('chartMain');
+  const c = new Chart(ctx, {
+    type:'bar',
+    data:{labels, datasets:[{label:title, data:dataVals}]},
+    options:{plugins:{legend:{display:false}}, maintainAspectRatio:false}
+  });
+  charts.push(c);
+}
+function drawLineChart(labels, dataVals, title="Line"){
+  destroyCharts();
+  document.getElementById('chartArea').style.display='';
+  const ctx = document.getElementById('chartMain');
+  const c = new Chart(ctx, {
+    type:'line',
+    data:{labels, datasets:[{label:title, data:dataVals, tension:0.2, fill:false}]},
+    options:{plugins:{legend:{display:false}}, maintainAspectRatio:false}
+  });
+  charts.push(c);
+}
+
+/* --- Utility to show rows in preview area --- */
+function showRowsInPreview(rows){
+  const previewDiv = document.getElementById('preview');
+  if(!rows || rows.length===0){ previewDiv.innerHTML = "<div class='muted'>No rows to show</div>"; return; }
+  let html = `<table><thead><tr>${headers.map(h=>`<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>`;
+  rows.slice(0,500).forEach(r=>{
+    html += "<tr>" + headers.map(h=>`<td>${escapeHtml(r[h])}</td>`).join('') + "</tr>";
+  });
+  html += "</tbody></table>";
+  previewDiv.innerHTML = html;
+}
+
+/* --- Download cleaned / transformed data --- */
+document.getElementById('btnDownloadClean').addEventListener('click', ()=>{
+  const data = filteredData || rawData;
+  if(!data || data.length===0){ alert("No data"); return; }
+  const csv = Papa.unparse(data);
+  downloadCSV(csv, "cleaned_data.csv");
+});
+
+/* --- Small helpers: download selected preview as CSV (not exposed separately) --- */
+
+/* --- Safe guard for large files --- */
+window.addEventListener('dragover', e=>e.preventDefault());
+window.addEventListener('drop', e=>{ e.preventDefault(); const f = e.dataTransfer.files?.[0]; if(f){ document.getElementById('csvFile').files = e.dataTransfer.files; const ev = new Event('change'); document.getElementById('csvFile').dispatchEvent(ev);} });
+
+/* --- Initial placeholder --- */
+document.getElementById('preview').innerHTML = `Drop a CSV file here or use Upload.`;
+</script>
+</body>
+</html>
